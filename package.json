@@ -1,0 +1,36 @@
+{
+  "name": "learning-tracker",
+  "version": "1.0.0",
+  "description": "本地优先的文章阅读清单",
+  "author": "Learning Tracker",
+  "main": "electron/main.mjs",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "dev": "node --watch server.mjs",
+    "start": "electron-forge start",
+    "web": "node server.mjs",
+    "desktop": "electron-forge start",
+    "package:desktop": "node scripts/package-desktop.mjs",
+    "make:desktop": "node scripts/package-desktop.mjs --installer",
+    "test": "node --test --test-isolation=none test/app.test.mjs"
+  },
+  "config": {
+    "forge": "./forge.config.mjs"
+  },
+  "devDependencies": {
+    "@electron-forge/cli": "^7.11.2",
+    "@electron-forge/maker-squirrel": "^7.11.2",
+    "@electron-forge/maker-zip": "^7.11.2",
+    "@electron/asar": "^3.4.1",
+    "electron": "^43.4.0",
+    "electron-winstaller": "^5.4.4",
+    "yazl": "^3.3.1"
+  },
+  "dependencies": {
+    "undici": "^8.10.0"
+  }
+}

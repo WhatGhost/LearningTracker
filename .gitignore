@@ -1,0 +1,24 @@
+# Local reading data (never commit)
+data/
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+
+# Dependencies and runtime output
+node_modules/
+out/
+npm-debug.log*
+*.log
+
+# Local configuration
+.env
+.env.*
+!.env.example
+
+# Editor and operating system files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
