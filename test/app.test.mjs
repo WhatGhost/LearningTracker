@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { createServer } from "node:http";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -153,6 +154,143 @@ test("persists the full article lifecycle", async () => {
 
   const empty = await jsonRequest(`${baseUrl}/api/articles`);
   assert.equal(empty.body.counts.all, 0);
+});
+
+test("manages labels and attaches up to five labels to an article", async () => {
+  const initial = await jsonRequest(`${baseUrl}/api/labels?includeDisabled=true`);
+  assert.equal(initial.response.status, 200);
+  assert.ok(initial.body.labels.some((label) => label.name === "PD 分离"));
+
+  const createdLabel = await jsonRequest(`${baseUrl}/api/labels`, {
+    method: "POST",
+    body: JSON.stringify({
+      name: "Attention",
+      group: "主题",
+      description: "注意力机制与实现",
+      aliases: ["注意力"],
+      color: "#123456",
+    }),
+  });
+  assert.equal(createdLabel.response.status, 201);
+
+  const imported = await jsonRequest(`${baseUrl}/api/articles/import`, {
+    method: "POST",
+    body: JSON.stringify({ items: [{ title: "Attention Article", url: "https://example.com/attention" }] }),
+  });
+  const articleId = imported.body.inserted[0].id;
+  const labelIds = initial.body.labels.filter((label) => label.enabled).slice(0, 4).map((label) => label.id);
+  labelIds.push(createdLabel.body.label.id);
+
+  const updated = await jsonRequest(`${baseUrl}/api/articles/${articleId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ labelIds }),
+  });
+  assert.equal(updated.response.status, 200);
+  assert.equal(updated.body.article.labels.length, 5);
+  assert.equal(updated.body.article.labelStatus, "classified");
+
+  const tooMany = await jsonRequest(`${baseUrl}/api/articles/${articleId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ labelIds: initial.body.labels.slice(0, 6).map((label) => label.id) }),
+  });
+  assert.equal(tooMany.response.status, 400);
+  assert.match(tooMany.body.error, /最多选择 5 个/u);
+
+  const filtered = await jsonRequest(`${baseUrl}/api/articles?label=${createdLabel.body.label.id}`);
+  assert.equal(filtered.body.articles.length, 1);
+
+  await jsonRequest(`${baseUrl}/api/articles/${articleId}`, { method: "DELETE" });
+});
+
+test("tests an OpenAI-compatible endpoint and auto-labels imported articles", async () => {
+  const mockServer = createServer(async (request, response) => {
+    const chunks = [];
+    for await (const chunk of request) chunks.push(chunk);
+    const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    assert.equal(request.url, "/v1/chat/completions");
+    assert.equal(request.headers.authorization, "Bearer local-test-key");
+    assert.equal(request.headers["ocp-apim-subscription-key"], "local-subscription-key");
+    assert.equal(request.headers.user, "test-user");
+    assert.equal(body.model, "test-model");
+    assert.equal(body.response_format?.json_schema?.schema?.properties?.labels?.uniqueItems, undefined);
+    if (body.response_format?.type === "json_schema") {
+      response.writeHead(400, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: { message: "Grammar error: Unimplemented keys: [\"maxItems\"]" } }));
+      return;
+    }
+    assert.equal(body.response_format?.type, "json_object");
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({
+      choices: [{ message: { content: JSON.stringify({
+        labels: ["PD 分离", "vLLM"],
+        needsReview: false,
+        reason: "文章聚焦 vLLM 的 PD 分离。",
+      }) } }],
+    }));
+  });
+  const mockPort = await availablePort();
+  await new Promise((resolve, reject) => {
+    mockServer.once("error", reject);
+    mockServer.listen(mockPort, "127.0.0.1", resolve);
+  });
+
+  try {
+    const saved = await jsonRequest(`${baseUrl}/api/settings/llm`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        baseUrl: `http://127.0.0.1:${mockPort}/v1`,
+        model: "test-model",
+        apiKey: "local-test-key",
+        subscriptionHeaderName: "Ocp-Apim-Subscription-Key",
+        subscriptionKey: "local-subscription-key",
+        userHeaderName: "user",
+        userHeaderValue: "test-user",
+        autoLabel: true,
+        timeoutMs: 10_000,
+        maxLabels: 5,
+      }),
+    });
+    assert.equal(saved.response.status, 200);
+    assert.equal(saved.body.apiKey.configured, true);
+    assert.equal(saved.body.apiKey.persistent, false);
+    assert.equal(saved.body.subscriptionKey.configured, true);
+    assert.equal(saved.body.subscriptionKey.persistent, false);
+
+    const connection = await jsonRequest(`${baseUrl}/api/settings/llm/test`, { method: "POST" });
+    assert.equal(connection.response.status, 200);
+    assert.deepEqual(connection.body.labels, ["PD 分离", "vLLM"]);
+
+    const imported = await jsonRequest(`${baseUrl}/api/articles/import`, {
+      method: "POST",
+      body: JSON.stringify({
+        items: [{
+          title: "vLLM 的 Prefill/Decode 分离实践",
+          url: "https://example.com/vllm-pd",
+          description: "PD 分离和推理吞吐优化",
+        }],
+      }),
+    });
+    assert.equal(imported.body.classificationQueued, 1);
+    const articleId = imported.body.inserted[0].id;
+
+    let article;
+    const deadline = Date.now() + 3_000;
+    while (Date.now() < deadline) {
+      const listed = await jsonRequest(`${baseUrl}/api/articles?search=Prefill`);
+      article = listed.body.articles[0];
+      if (article?.labelStatus === "classified") break;
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    }
+    assert.equal(article.labelStatus, "classified");
+    assert.deepEqual(article.labels.map((label) => label.name), ["vLLM", "PD 分离"]);
+
+    const exported = await jsonRequest(`${baseUrl}/api/export`);
+    assert.equal(JSON.stringify(exported.body).includes("local-test-key"), false);
+    assert.equal(JSON.stringify(exported.body).includes("local-subscription-key"), false);
+    await jsonRequest(`${baseUrl}/api/articles/${articleId}`, { method: "DELETE" });
+  } finally {
+    await new Promise((resolve) => mockServer.close(resolve));
+  }
 });
 
 test("keeps the documented data path out of tracked source", async () => {

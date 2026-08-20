@@ -71,7 +71,7 @@ async function createApplicationAsar() {
       type: sourcePackage.type,
     };
     await writeFile(path.join(stage, "package.json"), `${JSON.stringify(runtimePackage, null, 2)}\n`, "utf8");
-    for (const entry of ["electron", "lib", "public"]) {
+    for (const entry of ["config", "electron", "lib", "public"]) {
       await cp(path.join(projectRoot, entry), path.join(stage, entry), { recursive: true });
     }
     await cp(path.join(projectRoot, "server.mjs"), path.join(stage, "server.mjs"));

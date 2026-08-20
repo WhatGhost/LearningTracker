@@ -18,6 +18,10 @@
           <span>阅迹</span>
         </a>
         <div class="topbar-actions">
+          <button class="backup-button" id="settings-open" type="button" aria-label="打开设置">
+            <svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="2.4"/><path d="M9 2.5v1.4M9 14.1v1.4M2.5 9h1.4M14.1 9h1.4M4.4 4.4l1 1M12.6 12.6l1 1M13.6 4.4l-1 1M5.4 12.6l-1 1"/></svg>
+            设置
+          </button>
           <a class="backup-button" href="/api/export" aria-label="导出 JSON 备份">
             <svg viewBox="0 0 18 18"><path d="M9 3v8M6 8l3 3 3-3M4 14h10"/></svg>
             导出备份
@@ -67,6 +71,12 @@
               <button class="filter" type="button" data-status="reading">阅读中</button>
               <button class="filter" type="button" data-status="completed">已完成</button>
             </div>
+            <label class="label-filter-wrap">
+              <span class="sr-only">按标签筛选</span>
+              <select id="label-filter" aria-label="按标签筛选">
+                <option value="">全部标签</option>
+              </select>
+            </label>
           </div>
 
           <div class="table-wrap">
@@ -163,6 +173,10 @@
               <option value="completed">已完成</option>
             </select>
           </label>
+          <fieldset class="label-picker-field">
+            <legend>文章标签 <span>最多选择 5 个</span></legend>
+            <div class="label-picker" id="edit-label-list"></div>
+          </fieldset>
           <p class="form-hint">标题抓取失败时，可以在这里手动补充或修正信息。</p>
           <div class="dialog-actions">
             <button class="ghost-button" id="edit-cancel" type="button">取消</button>
@@ -172,6 +186,121 @@
             </button>
           </div>
         </form>
+      </div>
+    </dialog>
+
+    <dialog class="settings-dialog" id="settings-dialog" aria-labelledby="settings-title">
+      <div class="dialog-card settings-card">
+        <header class="dialog-header">
+          <div>
+            <p class="dialog-eyebrow">LOCAL AI SETTINGS</p>
+            <h2 id="settings-title">模型与标签设置</h2>
+          </div>
+          <button class="icon-button" id="settings-close" type="button" aria-label="关闭设置">
+            <svg viewBox="0 0 20 20"><path d="m5 5 10 10M15 5 5 15"/></svg>
+          </button>
+        </header>
+
+        <div class="settings-content">
+          <section class="settings-section">
+            <div class="settings-section-heading">
+              <div><h3>模型连接</h3><p>支持 OpenAI 兼容的 Chat Completions 接口。</p></div>
+              <span class="connection-badge" id="api-key-state">未配置</span>
+            </div>
+            <form id="llm-settings-form">
+              <div class="settings-form-grid">
+                <label class="form-field field-wide" for="llm-base-url">
+                  <span>API Base URL</span>
+                  <input id="llm-base-url" type="url" required placeholder="https://api.openai.com/v1" />
+                </label>
+                <label class="form-field" for="llm-model">
+                  <span>模型名称</span>
+                  <input id="llm-model" required placeholder="例如 gpt-4.1-mini" />
+                </label>
+                <label class="form-field" for="llm-api-key">
+                  <span>Bearer API Key</span>
+                  <input id="llm-api-key" type="password" autocomplete="new-password" placeholder="例如 dummy；留空则保留" />
+                </label>
+                <label class="form-field" for="llm-timeout">
+                  <span>超时时间</span>
+                  <select id="llm-timeout">
+                    <option value="10000">10 秒</option>
+                    <option value="20000">20 秒</option>
+                    <option value="30000">30 秒</option>
+                    <option value="60000">60 秒</option>
+                  </select>
+                </label>
+                <label class="form-field" for="llm-max-labels">
+                  <span>每篇最多标签数</span>
+                  <select id="llm-max-labels">
+                    <option value="1">1 个</option><option value="2">2 个</option><option value="3">3 个</option>
+                    <option value="4">4 个</option><option value="5">5 个</option>
+                  </select>
+                </label>
+                <div class="form-subsection-title field-wide">
+                  <strong>额外请求头</strong>
+                  <span>适用于需要订阅密钥和用户标识的兼容接口；不需要时将密钥和值留空。</span>
+                </div>
+                <label class="form-field" for="llm-subscription-header">
+                  <span>订阅密钥请求头</span>
+                  <input id="llm-subscription-header" maxlength="100" placeholder="Ocp-Apim-Subscription-Key" />
+                </label>
+                <label class="form-field" for="llm-subscription-key">
+                  <span>订阅密钥</span>
+                  <input id="llm-subscription-key" type="password" autocomplete="new-password" placeholder="填写真实 Key；留空则保留" />
+                </label>
+                <label class="form-field" for="llm-user-header">
+                  <span>用户请求头</span>
+                  <input id="llm-user-header" maxlength="100" placeholder="user" />
+                </label>
+                <label class="form-field" for="llm-user-value">
+                  <span class="field-label-with-action">用户请求头值 <button id="use-system-user" type="button">使用当前系统用户</button></span>
+                  <input id="llm-user-value" maxlength="300" placeholder="例如 Windows 用户名" />
+                </label>
+              </div>
+              <label class="toggle-row">
+                <input id="llm-auto-label" type="checkbox" />
+                <span><strong>自动分类新导入的未读文章</strong><small>导入不会等待模型；结果会在后台写入。</small></span>
+              </label>
+              <p class="secret-hint" id="secret-hint"></p>
+              <div class="settings-actions">
+                <button class="ghost-button" id="clear-secrets" type="button">清除密钥</button>
+                <button class="ghost-button" id="test-llm" type="button"><span class="button-label">保存并测试连接</span><span class="button-loader" hidden></span></button>
+                <button class="primary-button" id="save-llm" type="submit"><span class="button-label">保存模型设置</span><span class="button-loader" hidden></span></button>
+              </div>
+              <div class="connection-result" id="connection-result" hidden></div>
+            </form>
+          </section>
+
+          <section class="settings-section">
+            <div class="settings-section-heading">
+              <div><h3>自动分类</h3><p>为尚未分类的未读文章创建后台任务，失败原因会显示在文章列表。</p></div>
+              <button class="ghost-button compact-button" id="classify-unread" type="button">分类已有未读文章</button>
+            </div>
+          </section>
+
+          <section class="settings-section label-management">
+            <div class="settings-section-heading">
+              <div><h3>标签管理</h3><p>标签说明和别名会提供给模型，写得越清楚分类越稳定。</p></div>
+            </div>
+            <form class="label-editor" id="label-form">
+              <input id="label-edit-id" type="hidden" />
+              <div class="settings-form-grid label-form-grid">
+                <label class="form-field" for="label-name"><span>名称</span><input id="label-name" maxlength="40" required placeholder="例如 Attention" /></label>
+                <label class="form-field" for="label-group"><span>分组</span><input id="label-group" maxlength="30" list="label-groups" value="自定义" /></label>
+                <label class="form-field field-wide" for="label-description"><span>分类说明</span><input id="label-description" maxlength="300" placeholder="这个标签适用于哪些内容" /></label>
+                <label class="form-field" for="label-aliases"><span>别名（逗号分隔）</span><input id="label-aliases" placeholder="alias, 别名" /></label>
+                <label class="form-field color-field" for="label-color"><span>颜色</span><input id="label-color" type="color" value="#5b5bd6" /></label>
+              </div>
+              <datalist id="label-groups"><option value="主题"></option><option value="系统"></option><option value="框架"></option><option value="内容类型"></option><option value="自定义"></option></datalist>
+              <div class="label-editor-actions">
+                <button class="ghost-button compact-button" id="label-edit-cancel" type="button" hidden>取消编辑</button>
+                <button class="primary-button compact-button" id="label-save" type="submit">新增标签</button>
+              </div>
+            </form>
+            <div class="managed-label-list" id="managed-label-list"></div>
+          </section>
+        </div>
       </div>
     </dialog>
 

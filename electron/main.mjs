@@ -1,4 +1,4 @@
-import { app, BrowserWindow, session, shell } from "electron";
+import { app, BrowserWindow, safeStorage, session, shell } from "electron";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -63,6 +63,51 @@ function databasePath() {
 
 async function startLocalServer() {
   process.env.LEARNING_TRACKER_DB_PATH = databasePath();
+  const databaseModule = await import("../lib/database.mjs");
+  const { configureApiKeyStorage } = await import("../lib/api-key-store.mjs");
+  const secretSettingKeys = {
+    apiKey: "llm.apiKey",
+    subscriptionKey: "llm.subscriptionKey",
+  };
+  configureApiKeyStorage({
+    kind: "system-encrypted",
+    persistent: true,
+    async get(name) {
+      if (name === "apiKey" && process.env.LEARNING_TRACKER_API_KEY) return process.env.LEARNING_TRACKER_API_KEY;
+      if (name === "subscriptionKey" && process.env.LEARNING_TRACKER_SUBSCRIPTION_KEY) {
+        return process.env.LEARNING_TRACKER_SUBSCRIPTION_KEY;
+      }
+      const settingKey = secretSettingKeys[name];
+      if (!settingKey) throw new Error("未知的密钥类型");
+      const encrypted = databaseModule.getRawSetting(settingKey);
+      if (!encrypted) return "";
+      try {
+        const buffer = Buffer.from(encrypted, "base64");
+        if (typeof safeStorage.decryptStringAsync === "function") {
+          return (await safeStorage.decryptStringAsync(buffer)).result;
+        }
+        return safeStorage.decryptString(buffer);
+      } catch {
+        throw new Error("无法解密本机保存的 API Key，请在设置中重新填写");
+      }
+    },
+    async set(name, value) {
+      const settingKey = secretSettingKeys[name];
+      if (!settingKey) throw new Error("未知的密钥类型");
+      if (!value) {
+        databaseModule.setRawSetting(settingKey, "");
+        return;
+      }
+      const encryptionAvailable = typeof safeStorage.isAsyncEncryptionAvailable === "function"
+        ? await safeStorage.isAsyncEncryptionAvailable()
+        : safeStorage.isEncryptionAvailable();
+      if (!encryptionAvailable) throw new Error("当前系统无法安全保存 API Key");
+      const encrypted = typeof safeStorage.encryptStringAsync === "function"
+        ? await safeStorage.encryptStringAsync(value)
+        : safeStorage.encryptString(value);
+      databaseModule.setRawSetting(settingKey, encrypted.toString("base64"));
+    },
+  });
   const { configureMetadataFetch } = await import("../lib/link-metadata.mjs");
   const proxySessions = await Promise.all(
     METADATA_PROXIES.map(async (proxy) => {
@@ -94,7 +139,6 @@ async function startLocalServer() {
   });
 
   const serverModule = await import("../server.mjs");
-  const databaseModule = await import("../lib/database.mjs");
   localServer = serverModule.server;
   closeDatabase = databaseModule.closeDatabase;
 

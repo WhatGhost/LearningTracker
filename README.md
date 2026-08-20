@@ -1,6 +1,6 @@
 # 阅迹 · Learning Tracker
 
-一个完全在本机运行的文章阅读清单。支持批量粘贴链接、自动抓取网页标题，并跟踪“未阅读、阅读中、已完成”三种阅读状态。
+一个本地优先的文章阅读清单。支持批量粘贴链接、自动抓取网页标题、跟踪阅读状态，并可使用你自己配置的大模型为未读文章添加分类标签。
 
 ## 功能
 
@@ -9,9 +9,13 @@
 - 导入前预览并修改标题
 - 自动识别“每行一个链接”和“说明文字 + 链接”
 - 使用 SQLite 持久化文章和阅读状态
-- 已保存文章可修改标题、链接和阅读状态
-- 按标题、链接或网站域名搜索
-- 按阅读状态筛选
+- 已保存文章可修改标题、链接、阅读状态和标签
+- 标签可新增、修改、停用、重新启用，并支持颜色、分组、说明和别名
+- 大模型从现有标签中为文章选择 1 至 5 个标签，不会自动创建新标签
+- 导入后异步自动分类，也可按文章重试或批量分类已有未读文章
+- 支持 OpenAI 兼容的 Chat Completions 接口和连接测试
+- 按标题、链接、网站域名或标签搜索
+- 按阅读状态和标签筛选
 - 防止重复链接写入
 - 导出 JSON 备份
 - 响应式桌面端和移动端界面
@@ -20,7 +24,55 @@
 
 - Node.js 22.13.0 或更高版本
 
-项目只使用 Node.js 内置模块，没有第三方运行依赖，不需要启动独立数据库。
+SQLite 由 Node.js 内置模块提供，不需要安装或启动独立数据库；其他依赖通过 `npm install` 安装。
+
+## 大模型自动分类
+
+点击页面右上角的“设置”，填写：
+
+- API Base URL，例如 `https://api.openai.com/v1` 或本地兼容服务地址
+- 模型名称
+- API Key；不需要 Key 的本地模型可以留空
+- 可选的订阅密钥请求头、订阅密钥、用户请求头及其值
+- 请求超时时间
+- 每篇最多标签数（1 至 5）
+- 是否自动分类新导入的未读文章
+
+“保存并测试连接”会发送一条很小的示例分类请求，同时验证地址、鉴权、模型名称和 JSON 返回格式。仅查询模型列表不能完整验证分类能力，因此测试会实际调用一次模型。
+如果兼容接口不支持完整 JSON Schema（例如返回 `Grammar error` 或 `Unimplemented keys`），应用会自动降级到 JSON Object 模式，并在本地继续校验和去重标签。
+
+### AMD OnPrem 自定义请求头示例
+
+对于下面这种 OpenAI SDK 配置：
+
+```python
+client = openai.OpenAI(
+    base_url="https://llm-api.amd.com/OnPrem",
+    api_key="dummy",
+    default_headers={
+        "Ocp-Apim-Subscription-Key": "actual_key",
+        "user": os.getlogin(),
+    },
+)
+```
+
+在设置页中对应填写：
+
+```text
+API Base URL:       https://llm-api.amd.com/OnPrem
+Bearer API Key:     dummy
+订阅密钥请求头:      Ocp-Apim-Subscription-Key
+订阅密钥:            真实的 actual_key
+用户请求头:          user
+用户请求头值:        Windows 用户名（可点击“使用当前系统用户”）
+模型名称:            服务端提供的实际模型 ID
+```
+
+应用会向 `https://llm-api.amd.com/OnPrem/chat/completions` 发送请求，并同时携带 `Authorization: Bearer dummy`、订阅密钥和用户请求头。
+
+自动分类使用文章标题、域名、URL 和网页描述，不发送整篇正文。模型只能从设置页中处于启用状态的标签中选择；请求失败时不会影响文章导入，列表会显示超时、鉴权、模型不存在、限流或格式解析等具体原因。
+
+默认标签位于 [`config/default-labels.json`](config/default-labels.json)，其中包括 LLM、Agent、GPU、vLLM、SGLang、通信、Kernel、PD 分离等标签。该文件只负责首次初始化；设置页中的实际增删修改保存在 SQLite，不会在应用升级时被默认文件覆盖。
 
 ## 桌面应用（推荐）
 
@@ -117,6 +169,8 @@ data/reading-tracker.db
 
 因此升级、移动或重新解压桌面应用不会覆盖数据库。该文件位于 Git 仓库之外，也不会被上传到 GitHub。
 
+现有数据库会在启动时自动增加标签和分类字段，原有文章、阅读状态和链接都保持不变，不需要重新导入。
+
 ### 备份数据
 
 有两种备份方式：
@@ -150,15 +204,21 @@ https://example.com/article-two
 - 文章数据只写入当前项目的本地 SQLite 文件。
 - 标题抓取只允许 HTTP/HTTPS，并会拒绝本机和常见内网地址。
 - Electron 窗口启用上下文隔离和沙箱，不向页面暴露 Node.js API。
-- 应用不会把阅读数据发送到任何云端数据库。
+- 桌面版 Bearer API Key 和订阅密钥均通过 Electron `safeStorage` 使用操作系统能力加密后写入本机数据库，不会出现在 JSON 导出或 Git 仓库中。
+- 浏览器运行模式没有 Electron 系统密钥库：设置页填写的密钥只保存在当前服务进程。需要重启后继续使用时，可在启动前设置 `LEARNING_TRACKER_API_KEY` 和 `LEARNING_TRACKER_SUBSCRIPTION_KEY` 环境变量。
+- 应用不会把阅读数据发送到任何云端数据库；启用自动分类时，只会把分类所需的文章字段发送到你配置的模型接口。
 
 ## 项目结构
 
 ```text
 LearningTracker/
+├── config/
+│   └── default-labels.json # 默认标签目录
 ├── lib/
-│   ├── database.mjs       # SQLite 初始化和数据操作
-│   └── link-metadata.mjs  # 链接解析与标题抓取
+│   ├── api-key-store.mjs  # API Key 存储适配
+│   ├── database.mjs       # SQLite 初始化、迁移和数据操作
+│   ├── link-metadata.mjs  # 链接解析与标题/描述抓取
+│   └── llm-labeler.mjs    # 模型请求、校验和后台分类队列
 ├── electron/
 │   └── main.mjs           # 桌面窗口和服务生命周期
 ├── public/
@@ -179,4 +239,4 @@ LearningTracker/
 npm test
 ```
 
-测试会使用临时数据库，不会修改 `data/reading-tracker.db`。
+测试会使用临时数据库和本地模拟模型接口，不会修改 `data/reading-tracker.db`，也不会调用或消耗真实的大模型 API。
