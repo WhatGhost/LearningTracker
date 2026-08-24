@@ -4,6 +4,43 @@ const statusDetails = {
   completed: { label: "已完成", className: "chip-completed" },
 };
 
+const THEME_STORAGE_KEY = "learning-tracker-theme";
+const SETTINGS_TAB_STORAGE_KEY = "learning-tracker-settings-tab";
+const availableThemes = new Set([
+  "warm", "ocean", "forest", "sunset", "latte", "solarized",
+  "midnight", "nord", "mocha", "dracula", "gruvbox",
+]);
+const darkThemes = new Set(["midnight", "nord", "mocha", "dracula", "gruvbox"]);
+const availableSettingsTabs = new Set(["model", "network", "labels", "appearance"]);
+
+function readLocalPreference(key, fallback) {
+  try {
+    return window.localStorage.getItem(key) || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function saveLocalPreference(key, value) {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // The UI still works when storage is unavailable.
+  }
+}
+
+function applyTheme(theme, persist = true) {
+  const selectedTheme = availableThemes.has(theme) ? theme : "warm";
+  document.documentElement.dataset.theme = selectedTheme;
+  document.documentElement.dataset.colorScheme = darkThemes.has(selectedTheme) ? "dark" : "light";
+  document.querySelectorAll('input[name="app-theme"]').forEach((input) => {
+    input.checked = input.value === selectedTheme;
+  });
+  if (persist) saveLocalPreference(THEME_STORAGE_KEY, selectedTheme);
+}
+
+applyTheme(readLocalPreference(THEME_STORAGE_KEY, "warm"), false);
+
 const state = {
   articles: [],
   labels: [],
@@ -40,6 +77,9 @@ const elements = {
   editLabels: document.querySelector("#edit-label-list"),
   editSave: document.querySelector("#edit-save"),
   settingsDialog: document.querySelector("#settings-dialog"),
+  settingsTabs: document.querySelector(".settings-tabs"),
+  settingsContent: document.querySelector(".settings-content"),
+  themePicker: document.querySelector(".theme-picker"),
   llmForm: document.querySelector("#llm-settings-form"),
   llmBaseUrl: document.querySelector("#llm-base-url"),
   llmModel: document.querySelector("#llm-model"),
@@ -54,9 +94,34 @@ const elements = {
   apiKeyState: document.querySelector("#api-key-state"),
   secretHint: document.querySelector("#secret-hint"),
   connectionResult: document.querySelector("#connection-result"),
+  networkForm: document.querySelector("#network-settings-form"),
+  networkUseProxy: document.querySelector("#network-use-proxy"),
+  networkHttpProxy: document.querySelector("#network-http-proxy"),
+  networkSocksProxy: document.querySelector("#network-socks-proxy"),
+  networkFallbackDirect: document.querySelector("#network-fallback-direct"),
+  networkTestUrl: document.querySelector("#network-test-url"),
+  networkModeState: document.querySelector("#network-mode-state"),
+  networkCapabilityHint: document.querySelector("#network-capability-hint"),
+  networkTestResult: document.querySelector("#network-test-result"),
   managedLabels: document.querySelector("#managed-label-list"),
   labelForm: document.querySelector("#label-form"),
 };
+
+function activateSettingsTab(tabName, { focus = false, persist = true } = {}) {
+  const selectedTab = availableSettingsTabs.has(tabName) ? tabName : "model";
+  document.querySelectorAll("[data-settings-tab]").forEach((tab) => {
+    const active = tab.dataset.settingsTab === selectedTab;
+    tab.classList.toggle("active", active);
+    tab.setAttribute("aria-selected", String(active));
+    tab.tabIndex = active ? 0 : -1;
+    if (active && focus) tab.focus();
+  });
+  document.querySelectorAll("[data-settings-panel]").forEach((panel) => {
+    panel.hidden = panel.dataset.settingsPanel !== selectedTab;
+  });
+  elements.settingsContent.scrollTop = 0;
+  if (persist) saveLocalPreference(SETTINGS_TAB_STORAGE_KEY, selectedTab);
+}
 
 async function apiRequest(path, options = {}) {
   const response = await fetch(path, {
@@ -444,6 +509,56 @@ function showConnectionResult(message, type = "success") {
   elements.connectionResult.textContent = message;
 }
 
+function syncNetworkFields() {
+  const enabled = elements.networkUseProxy.checked;
+  elements.networkHttpProxy.disabled = !enabled;
+  elements.networkSocksProxy.disabled = !enabled;
+  elements.networkFallbackDirect.disabled = !enabled;
+  elements.networkModeState.textContent = enabled ? "代理模式" : "直连模式";
+  elements.networkModeState.classList.toggle("configured", enabled);
+}
+
+async function loadNetworkSettings() {
+  const payload = await apiRequest("/api/settings/network");
+  const { settings, capabilities } = payload;
+  elements.networkUseProxy.checked = settings.useProxy;
+  elements.networkHttpProxy.value = settings.httpProxy || "";
+  elements.networkSocksProxy.value = settings.socksProxy || "";
+  elements.networkFallbackDirect.checked = settings.fallbackToDirect;
+  elements.networkCapabilityHint.textContent = capabilities.socks5
+    ? "桌面版支持 HTTP 与 SOCKS5 代理。代理地址只保存在本机数据库中。"
+    : "当前网页运行模式支持直连和 HTTP 代理；SOCKS5 代理请使用桌面版。";
+  syncNetworkFields();
+}
+
+function networkSettingsPayload() {
+  return {
+    useProxy: elements.networkUseProxy.checked,
+    httpProxy: elements.networkHttpProxy.value.trim(),
+    socksProxy: elements.networkSocksProxy.value.trim(),
+    fallbackToDirect: elements.networkFallbackDirect.checked,
+  };
+}
+
+async function saveNetworkSettings() {
+  const payload = await apiRequest("/api/settings/network", {
+    method: "PATCH",
+    body: JSON.stringify(networkSettingsPayload()),
+  });
+  elements.networkUseProxy.checked = payload.settings.useProxy;
+  elements.networkHttpProxy.value = payload.settings.httpProxy || "";
+  elements.networkSocksProxy.value = payload.settings.socksProxy || "";
+  elements.networkFallbackDirect.checked = payload.settings.fallbackToDirect;
+  syncNetworkFields();
+  return payload;
+}
+
+function showNetworkTestResult(message, type = "success") {
+  elements.networkTestResult.hidden = false;
+  elements.networkTestResult.className = `connection-result ${type}`;
+  elements.networkTestResult.textContent = message;
+}
+
 function renderManagedLabels() {
   if (!elements.managedLabels || !state.allLabels.length) return;
   elements.managedLabels.innerHTML = state.allLabels.map((label) => `
@@ -486,9 +601,12 @@ function editManagedLabel(label) {
 
 async function openSettings() {
   try {
-    await Promise.all([loadLlmSettings(), loadLabels()]);
+    await Promise.all([loadLlmSettings(), loadNetworkSettings(), loadLabels()]);
     elements.connectionResult.hidden = true;
+    elements.networkTestResult.hidden = true;
     resetLabelForm();
+    applyTheme(readLocalPreference(THEME_STORAGE_KEY, "warm"), false);
+    activateSettingsTab(readLocalPreference(SETTINGS_TAB_STORAGE_KEY, "model"), { persist: false });
     elements.settingsDialog.showModal();
   } catch (error) {
     showToast(error.message, "error");
@@ -651,6 +769,71 @@ elements.previewList.addEventListener("click", (event) => {
 
 document.querySelector("#settings-open").addEventListener("click", () => void openSettings());
 document.querySelector("#settings-close").addEventListener("click", () => elements.settingsDialog.close());
+
+elements.settingsTabs.addEventListener("click", (event) => {
+  const tab = event.target.closest("[data-settings-tab]");
+  if (tab) activateSettingsTab(tab.dataset.settingsTab);
+});
+
+elements.settingsTabs.addEventListener("keydown", (event) => {
+  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+  const tabs = [...elements.settingsTabs.querySelectorAll("[data-settings-tab]")];
+  const currentIndex = tabs.indexOf(document.activeElement);
+  if (currentIndex < 0) return;
+  event.preventDefault();
+  const nextIndex = event.key === "Home"
+    ? 0
+    : event.key === "End"
+      ? tabs.length - 1
+      : (currentIndex + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+  activateSettingsTab(tabs[nextIndex].dataset.settingsTab, { focus: true });
+});
+
+elements.themePicker.addEventListener("change", (event) => {
+  const input = event.target.closest('input[name="app-theme"]');
+  if (!input) return;
+  applyTheme(input.value);
+  showToast(`已切换为${input.closest(".theme-option").querySelector("strong").textContent}`);
+});
+
+elements.networkUseProxy.addEventListener("change", syncNetworkFields);
+
+elements.networkForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const button = document.querySelector("#save-network");
+  setButtonLoading(button, true, "正在保存...");
+  try {
+    await saveNetworkSettings();
+    showToast(elements.networkUseProxy.checked ? "代理设置已保存并立即生效" : "已切换为网页直连模式");
+  } catch (error) {
+    showToast(error.message, "error");
+  } finally {
+    setButtonLoading(button, false);
+  }
+});
+
+document.querySelector("#test-network").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  setButtonLoading(button, true, "正在测试...");
+  elements.networkTestResult.hidden = true;
+  try {
+    await saveNetworkSettings();
+    const payload = await apiRequest("/api/settings/network/test", {
+      method: "POST",
+      body: JSON.stringify({ url: elements.networkTestUrl.value.trim() }),
+    });
+    if (payload.ok) {
+      const title = payload.result.title ? ` · ${payload.result.title}` : "";
+      showNetworkTestResult(`连接成功${title}`);
+    } else {
+      showNetworkTestResult(payload.result.error || "网页抓取测试失败", "error");
+    }
+  } catch (error) {
+    showNetworkTestResult(error.message, "error");
+  } finally {
+    setButtonLoading(button, false);
+  }
+});
 
 elements.llmForm.addEventListener("submit", async (event) => {
   event.preventDefault();

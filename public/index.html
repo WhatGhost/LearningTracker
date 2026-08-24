@@ -5,6 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="保存在本机的文章阅读清单" />
     <title>阅迹 · 文章阅读清单</title>
+    <script>
+      try {
+        const savedTheme = localStorage.getItem("learning-tracker-theme") || "warm";
+        document.documentElement.dataset.theme = savedTheme;
+        document.documentElement.dataset.colorScheme = ["midnight", "nord", "mocha", "dracula", "gruvbox"].includes(savedTheme) ? "dark" : "light";
+      } catch { /* Use the default theme. */ }
+    </script>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/styles.css" />
   </head>
@@ -193,16 +200,24 @@
       <div class="dialog-card settings-card">
         <header class="dialog-header">
           <div>
-            <p class="dialog-eyebrow">LOCAL AI SETTINGS</p>
-            <h2 id="settings-title">模型与标签设置</h2>
+            <p class="dialog-eyebrow">APPLICATION SETTINGS</p>
+            <h2 id="settings-title">设置</h2>
           </div>
           <button class="icon-button" id="settings-close" type="button" aria-label="关闭设置">
             <svg viewBox="0 0 20 20"><path d="m5 5 10 10M15 5 5 15"/></svg>
           </button>
         </header>
 
+        <nav class="settings-tabs" role="tablist" aria-label="设置类别">
+          <button id="settings-tab-model" class="settings-tab active" type="button" role="tab" aria-selected="true" aria-controls="settings-panel-model" data-settings-tab="model">模型 API</button>
+          <button id="settings-tab-network" class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-network" data-settings-tab="network" tabindex="-1">网页抓取</button>
+          <button id="settings-tab-labels" class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-labels" data-settings-tab="labels" tabindex="-1">标签分类</button>
+          <button id="settings-tab-appearance" class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-appearance" data-settings-tab="appearance" tabindex="-1">外观主题</button>
+        </nav>
+
         <div class="settings-content">
-          <section class="settings-section">
+          <div class="settings-panel" id="settings-panel-model" role="tabpanel" aria-labelledby="settings-tab-model" data-settings-panel="model">
+            <section class="settings-section">
             <div class="settings-section-heading">
               <div><h3>模型连接</h3><p>支持 OpenAI 兼容的 Chat Completions 接口。</p></div>
               <span class="connection-badge" id="api-key-state">未配置</span>
@@ -270,16 +285,59 @@
               </div>
               <div class="connection-result" id="connection-result" hidden></div>
             </form>
-          </section>
+            </section>
+          </div>
 
-          <section class="settings-section">
+          <div class="settings-panel" id="settings-panel-network" role="tabpanel" aria-labelledby="settings-tab-network" data-settings-panel="network" hidden>
+            <section class="settings-section">
             <div class="settings-section-heading">
-              <div><h3>自动分类</h3><p>为尚未分类的未读文章创建后台任务，失败原因会显示在文章列表。</p></div>
-              <button class="ghost-button compact-button" id="classify-unread" type="button">分类已有未读文章</button>
+              <div><h3>网页抓取网络</h3><p>只影响文章标题和网页描述抓取，不影响模型 API 请求。</p></div>
+              <span class="connection-badge" id="network-mode-state">直连</span>
             </div>
-          </section>
+            <form id="network-settings-form">
+              <label class="toggle-row network-toggle-row">
+                <input id="network-use-proxy" type="checkbox" />
+                <span><strong>使用代理抓取网页</strong><small>关闭后直接连接文章网站；开启后按 HTTP、SOCKS5、直连回退的顺序尝试。</small></span>
+              </label>
+              <div class="settings-form-grid network-form-grid">
+                <label class="form-field" for="network-http-proxy">
+                  <span>HTTP 代理</span>
+                  <input id="network-http-proxy" placeholder="http://127.0.0.1:17890" />
+                </label>
+                <label class="form-field" for="network-socks-proxy">
+                  <span>SOCKS5 备用代理</span>
+                  <input id="network-socks-proxy" placeholder="socks5://127.0.0.1:10801" />
+                </label>
+              </div>
+              <label class="toggle-row compact-toggle-row">
+                <input id="network-fallback-direct" type="checkbox" />
+                <span><strong>代理失败后尝试直连</strong><small>建议开启，避免代理临时不可用时完全无法抓取。</small></span>
+              </label>
+              <p class="secret-hint" id="network-capability-hint"></p>
+              <div class="network-test-row">
+                <label class="form-field" for="network-test-url">
+                  <span>测试网址</span>
+                  <input id="network-test-url" type="url" value="https://example.com/" />
+                </label>
+                <div class="settings-actions">
+                  <button class="ghost-button" id="test-network" type="button"><span class="button-label">保存并测试</span><span class="button-loader" hidden></span></button>
+                  <button class="primary-button" id="save-network" type="submit"><span class="button-label">保存网络设置</span><span class="button-loader" hidden></span></button>
+                </div>
+              </div>
+              <div class="connection-result" id="network-test-result" hidden></div>
+            </form>
+            </section>
+          </div>
 
-          <section class="settings-section label-management">
+          <div class="settings-panel" id="settings-panel-labels" role="tabpanel" aria-labelledby="settings-tab-labels" data-settings-panel="labels" hidden>
+            <section class="settings-section">
+              <div class="settings-section-heading">
+                <div><h3>自动分类</h3><p>为尚未分类的未读文章创建后台任务，失败原因会显示在文章列表。</p></div>
+                <button class="ghost-button compact-button" id="classify-unread" type="button">分类已有未读文章</button>
+              </div>
+            </section>
+
+            <section class="settings-section label-management">
             <div class="settings-section-heading">
               <div><h3>标签管理</h3><p>标签说明和别名会提供给模型，写得越清楚分类越稳定。</p></div>
             </div>
@@ -299,7 +357,85 @@
               </div>
             </form>
             <div class="managed-label-list" id="managed-label-list"></div>
-          </section>
+            </section>
+          </div>
+
+          <div class="settings-panel" id="settings-panel-appearance" role="tabpanel" aria-labelledby="settings-tab-appearance" data-settings-panel="appearance" hidden>
+            <section class="settings-section">
+              <div class="settings-section-heading">
+                <div><h3>主题配色</h3><p>选择后立即应用，并保存在当前浏览器或桌面应用中。</p></div>
+              </div>
+              <fieldset class="theme-picker">
+                <legend class="sr-only">选择界面主题</legend>
+                <label class="theme-option">
+                  <input type="radio" name="app-theme" value="warm" />
+                  <span class="theme-preview theme-preview-warm"><i></i><i></i><i></i></span>
+                  <span class="theme-option-copy"><strong>暖纸书房</strong><small>奶油纸张与墨水紫</small></span>
+                  <span class="theme-check" aria-hidden="true">✓</span>
+                </label>
+                <label class="theme-option">
+                  <input type="radio" name="app-theme" value="ocean" />
+                  <span class="theme-preview theme-preview-ocean"><i></i><i></i><i></i></span>
+                  <span class="theme-option-copy"><strong>海岸晴空</strong><small>浅海蓝与清透白</small></span>
+                  <span class="theme-check" aria-hidden="true">✓</span>
+                </label>
+                <label class="theme-option">
+                  <input type="radio" name="app-theme" value="forest" />
+                  <span class="theme-preview theme-preview-forest"><i></i><i></i><i></i></span>
+                  <span class="theme-option-copy"><strong>森林苔原</strong><small>苔绿与自然纸色</small></span>
+                  <span class="theme-check" aria-hidden="true">✓</span>
+                </label>
+                <label class="theme-option">
+                  <input type="radio" name="app-theme" value="sunset" />
+                  <span class="theme-preview theme-preview-sunset"><i></i><i></i><i></i></span>
+                  <span class="theme-option-copy"><strong>日落陶土</strong><small>陶土橙与晚霞粉</small></span>
+                  <span class="theme-check" aria-hidden="true">✓</span>
+                </label>
+                <label class="theme-option">
+                  <input type="radio" name="app-theme" value="latte" />
+                  <span class="theme-preview theme-preview-latte"><i></i><i></i><i></i></span>
+                  <span class="theme-option-copy"><strong>Catppuccin Latte</strong><small>明亮柔和的粉彩风格</small></span>
+                  <span class="theme-check" aria-hidden="true">✓</span>
+                </label>
+                <label class="theme-option">
+                  <input type="radio" name="app-theme" value="solarized" />
+                  <span class="theme-preview theme-preview-solarized"><i></i><i></i><i></i></span>
+                  <span class="theme-option-copy"><strong>Solarized Light</strong><small>经典护眼的暖黄底色</small></span>
+                  <span class="theme-check" aria-hidden="true">✓</span>
+                </label>
+                <label class="theme-option">
+                  <input type="radio" name="app-theme" value="midnight" />
+                  <span class="theme-preview theme-preview-midnight"><i></i><i></i><i></i></span>
+                  <span class="theme-option-copy"><strong>东京夜色</strong><small>霓虹蓝紫的都市夜景</small></span>
+                  <span class="theme-check" aria-hidden="true">✓</span>
+                </label>
+                <label class="theme-option">
+                  <input type="radio" name="app-theme" value="nord" />
+                  <span class="theme-preview theme-preview-nord"><i></i><i></i><i></i></span>
+                  <span class="theme-option-copy"><strong>Nord 极夜</strong><small>克制清冷的北境蓝灰</small></span>
+                  <span class="theme-check" aria-hidden="true">✓</span>
+                </label>
+                <label class="theme-option">
+                  <input type="radio" name="app-theme" value="mocha" />
+                  <span class="theme-preview theme-preview-mocha"><i></i><i></i><i></i></span>
+                  <span class="theme-option-copy"><strong>Catppuccin Mocha</strong><small>柔和丰富的深色粉彩</small></span>
+                  <span class="theme-check" aria-hidden="true">✓</span>
+                </label>
+                <label class="theme-option">
+                  <input type="radio" name="app-theme" value="dracula" />
+                  <span class="theme-preview theme-preview-dracula"><i></i><i></i><i></i></span>
+                  <span class="theme-option-copy"><strong>Dracula</strong><small>高对比紫粉霓虹风格</small></span>
+                  <span class="theme-check" aria-hidden="true">✓</span>
+                </label>
+                <label class="theme-option">
+                  <input type="radio" name="app-theme" value="gruvbox" />
+                  <span class="theme-preview theme-preview-gruvbox"><i></i><i></i><i></i></span>
+                  <span class="theme-option-copy"><strong>Gruvbox 复古</strong><small>温暖浓郁的复古暗色</small></span>
+                  <span class="theme-check" aria-hidden="true">✓</span>
+                </label>
+              </fieldset>
+            </section>
+          </div>
         </div>
       </div>
     </dialog>

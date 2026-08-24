@@ -1,22 +1,11 @@
 import { app, BrowserWindow, safeStorage, session, shell } from "electron";
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const projectRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const DEFAULT_DESKTOP_PORT = 8999;
-const METADATA_PROXIES = [
-  {
-    label: "HTTP 代理 127.0.0.1:17890",
-    partition: "persist:learning-tracker-metadata-http",
-    rules: "http://127.0.0.1:17890",
-  },
-  {
-    label: "SOCKS5 代理 127.0.0.1:10801",
-    partition: "persist:learning-tracker-metadata-socks",
-    rules: "socks5://127.0.0.1:10801",
-  },
-];
 let mainWindow = null;
 let localServer = null;
 let closeDatabase = null;
@@ -63,6 +52,7 @@ function databasePath() {
 
 async function startLocalServer() {
   process.env.LEARNING_TRACKER_DB_PATH = databasePath();
+  process.env.LEARNING_TRACKER_RUNTIME = "desktop";
   const databaseModule = await import("../lib/database.mjs");
   const { configureApiKeyStorage } = await import("../lib/api-key-store.mjs");
   const secretSettingKeys = {
@@ -109,33 +99,52 @@ async function startLocalServer() {
     },
   });
   const { configureMetadataFetch } = await import("../lib/link-metadata.mjs");
-  const proxySessions = await Promise.all(
-    METADATA_PROXIES.map(async (proxy) => {
-      const proxySession = session.fromPartition(proxy.partition);
-      await proxySession.setProxy({ mode: "fixed_servers", proxyRules: proxy.rules });
-      await proxySession.clearCache();
-      return { ...proxy, session: proxySession };
-    }),
-  );
+  const metadataSessions = new Map();
+
+  async function metadataSessionFor(route) {
+    const key = route.rules || "direct";
+    if (!metadataSessions.has(key)) {
+      metadataSessions.set(key, (async () => {
+        const hash = createHash("sha256").update(key).digest("hex").slice(0, 12);
+        const proxySession = session.fromPartition(`learning-tracker-metadata-${hash}`);
+        await proxySession.setProxy(route.rules
+          ? { mode: "fixed_servers", proxyRules: route.rules }
+          : { mode: "direct" });
+        return proxySession;
+      })());
+    }
+    return metadataSessions.get(key);
+  }
+
+  function metadataRoutes() {
+    const settings = databaseModule.getNetworkSettings();
+    if (!settings.useProxy) return [{ label: "直连", rules: null }];
+    const routes = [];
+    if (settings.httpProxy) routes.push({ label: `HTTP 代理 ${settings.httpProxy}`, rules: settings.httpProxy });
+    if (settings.socksProxy) routes.push({ label: `SOCKS5 代理 ${settings.socksProxy}`, rules: settings.socksProxy });
+    if (settings.fallbackToDirect) routes.push({ label: "直连回退", rules: null });
+    return routes;
+  }
 
   configureMetadataFetch(async (input, init = {}) => {
     const errors = [];
-    for (const proxy of proxySessions) {
+    for (const route of metadataRoutes()) {
       try {
-        const response = await proxy.session.fetch(input, {
+        const proxySession = await metadataSessionFor(route);
+        const response = await proxySession.fetch(input, {
           ...init,
           bypassCustomProtocolHandlers: true,
         });
         if ([502, 503, 504].includes(response.status)) {
-          errors.push(`${proxy.label} 返回 HTTP ${response.status}`);
+          errors.push(`${route.label}返回 HTTP ${response.status}`);
           continue;
         }
         return response;
       } catch (error) {
-        errors.push(`${proxy.label}：${error instanceof Error ? error.message : "连接失败"}`);
+        errors.push(`${route.label}：${error instanceof Error ? error.message : "连接失败"}`);
       }
     }
-    throw new Error(`代理请求失败；${errors.join("；")}`);
+    throw new Error(`网页抓取请求失败；${errors.join("；")}`);
   });
 
   const serverModule = await import("../server.mjs");

@@ -73,7 +73,7 @@ after(async () => {
   if (tempDir) await rm(tempDir, { recursive: true, force: true });
 });
 
-test("parses links, labels and duplicates", () => {
+test("parses links without using surrounding text as titles", () => {
   const links = parseLinks(`
     https://example.com/first#section
     稍后阅读：https://example.com/second。
@@ -84,8 +84,25 @@ test("parses links, labels and duplicates", () => {
   assert.equal(links.length, 2);
   assert.equal(links[0].url, "https://example.com/first");
   assert.equal(links[1].url, "https://example.com/second");
-  assert.equal(links[1].suppliedTitle, "稍后阅读");
+  assert.equal(links[1].suppliedTitle, "");
   assert.throws(() => normalizeUrl("file:///etc/passwd"), /HTTP/);
+});
+
+test("parses nested Markdown links copied from chat exports", () => {
+  const links = parseLinks(`
+    WhatGhost 09:40
+    [机器人视频基座模型: [https://mp.weixin.qq.com/s?__biz=test#rd](https://mp.weixin.qq.com/s?__biz=test#rd)]
+    WhatGhost 15:37
+    [谈谈 Kimi K3 的 KDA(1): [https://mp.weixin.qq.com/s/short](https://mp.weixin.qq.com/s/short)]
+    WhatGhost 15:38
+    [[mp.weixin.qq.com](http://mp.weixin.qq.com): [https://mp.weixin.qq.com/s/no-title](https://mp.weixin.qq.com/s/no-title)]
+  `);
+
+  assert.deepEqual(links, [
+    { url: "https://mp.weixin.qq.com/s?__biz=test", suppliedTitle: "" },
+    { url: "https://mp.weixin.qq.com/s/short", suppliedTitle: "" },
+    { url: "https://mp.weixin.qq.com/s/no-title", suppliedTitle: "" },
+  ]);
 });
 
 test("extracts WeChat titles without accepting verification pages", () => {
@@ -106,6 +123,10 @@ test("serves the reading list page", async () => {
   const html = await response.text();
   assert.match(html, /批量导入文章/u);
   assert.match(html, /article-body/u);
+  assert.match(html, /data-settings-tab="appearance"/u);
+  assert.match(html, /name="app-theme" value="midnight"/u);
+  assert.match(html, /name="app-theme" value="dracula"/u);
+  assert.match(html, /name="app-theme" value="gruvbox"/u);
 });
 
 test("persists the full article lifecycle", async () => {
@@ -200,6 +221,43 @@ test("manages labels and attaches up to five labels to an article", async () => 
   assert.equal(filtered.body.articles.length, 1);
 
   await jsonRequest(`${baseUrl}/api/articles/${articleId}`, { method: "DELETE" });
+});
+
+test("persists configurable direct and proxy modes for metadata fetching", async () => {
+  const initial = await jsonRequest(`${baseUrl}/api/settings/network`);
+  assert.equal(initial.response.status, 200);
+  assert.equal(typeof initial.body.settings.useProxy, "boolean");
+  assert.equal(initial.body.capabilities.socks5, false);
+
+  const proxied = await jsonRequest(`${baseUrl}/api/settings/network`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      useProxy: true,
+      httpProxy: "http://127.0.0.1:17890",
+      socksProxy: "socks5://127.0.0.1:10801",
+      fallbackToDirect: true,
+    }),
+  });
+  assert.equal(proxied.response.status, 200);
+  assert.deepEqual(proxied.body.settings, {
+    useProxy: true,
+    httpProxy: "http://127.0.0.1:17890",
+    socksProxy: "socks5://127.0.0.1:10801",
+    fallbackToDirect: true,
+  });
+
+  const invalid = await jsonRequest(`${baseUrl}/api/settings/network`, {
+    method: "PATCH",
+    body: JSON.stringify({ httpProxy: "socks5://127.0.0.1:10801" }),
+  });
+  assert.equal(invalid.response.status, 400);
+  assert.match(invalid.body.error, /HTTP 代理协议无效/u);
+
+  const direct = await jsonRequest(`${baseUrl}/api/settings/network`, {
+    method: "PATCH",
+    body: JSON.stringify({ useProxy: false }),
+  });
+  assert.equal(direct.body.settings.useProxy, false);
 });
 
 test("tests an OpenAI-compatible endpoint and auto-labels imported articles", async () => {

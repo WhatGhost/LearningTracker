@@ -9,12 +9,14 @@ import {
   deleteArticle,
   exportData,
   getLlmSettings,
+  getNetworkSettings,
   importArticles,
   listArticles,
   listLabels,
   updateArticle,
   updateLabel,
   updateLlmSettings,
+  updateNetworkSettings,
 } from "./lib/database.mjs";
 import {
   getApiKeyInfo,
@@ -22,7 +24,13 @@ import {
   setApiKey,
   setSubscriptionKey,
 } from "./lib/api-key-store.mjs";
-import { configureMetadataFetch, fetchMetadataBatch, normalizeUrl, parseLinks } from "./lib/link-metadata.mjs";
+import {
+  configureMetadataFetch,
+  fetchLinkMetadata,
+  fetchMetadataBatch,
+  normalizeUrl,
+  parseLinks,
+} from "./lib/link-metadata.mjs";
 import {
   queueArticleClassifications,
   queueImportedArticles,
@@ -160,6 +168,36 @@ async function handleApi(request, response, url) {
   if (request.method === "POST" && url.pathname === "/api/settings/llm/test") {
     const result = await testLlmConnection();
     sendJson(response, 200, result);
+    return true;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/settings/network") {
+    sendJson(response, 200, {
+      settings: getNetworkSettings(),
+      capabilities: {
+        socks5: process.env.LEARNING_TRACKER_RUNTIME === "desktop",
+      },
+    });
+    return true;
+  }
+
+  if (request.method === "PATCH" && url.pathname === "/api/settings/network") {
+    const body = await readJsonBody(request);
+    sendJson(response, 200, {
+      settings: updateNetworkSettings(body),
+      capabilities: {
+        socks5: process.env.LEARNING_TRACKER_RUNTIME === "desktop",
+      },
+    });
+    return true;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/settings/network/test") {
+    const body = await readJsonBody(request);
+    const testUrl = normalizeUrl(String(body.url || "https://example.com/"));
+    const result = await fetchLinkMetadata({ url: testUrl, suppliedTitle: "" });
+    const ok = result.fetched || result.errorType === "title_missing";
+    sendJson(response, 200, { ok, result });
     return true;
   }
 
@@ -331,19 +369,49 @@ function shutdown() {
 const isDirectRun = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 
 if (isDirectRun) {
-  const proxyUrl = process.env.LEARNING_TRACKER_HTTP_PROXY || "http://127.0.0.1:17890";
+  process.env.LEARNING_TRACKER_RUNTIME = "web";
   const { ProxyAgent, fetch: undiciFetch } = await import("undici");
-  const metadataDispatcher = new ProxyAgent(proxyUrl);
-  configureMetadataFetch(async (input, init) => {
-    try {
-      return await undiciFetch(input, { ...init, dispatcher: metadataDispatcher });
-    } catch (error) {
-      const cause = error?.cause?.message || error?.message || "连接失败";
-      throw new Error(`HTTP 代理 ${new URL(proxyUrl).host} 请求失败：${cause}`);
+  const proxyDispatchers = new Map();
+
+  function dispatcherFor(proxyUrl) {
+    if (!proxyDispatchers.has(proxyUrl)) proxyDispatchers.set(proxyUrl, new ProxyAgent(proxyUrl));
+    return proxyDispatchers.get(proxyUrl);
+  }
+
+  configureMetadataFetch(async (input, init = {}) => {
+    const settings = getNetworkSettings();
+    const routes = settings.useProxy
+      ? [
+          ...(settings.httpProxy ? [{ label: `HTTP 代理 ${settings.httpProxy}`, proxy: settings.httpProxy }] : []),
+          ...(settings.socksProxy ? [{ label: `SOCKS5 代理 ${settings.socksProxy}`, unsupported: true }] : []),
+          ...(settings.fallbackToDirect ? [{ label: "直连回退", proxy: null }] : []),
+        ]
+      : [{ label: "直连", proxy: null }];
+    const errors = [];
+    for (const route of routes) {
+      if (route.unsupported) {
+        errors.push(`${route.label}：浏览器运行模式暂不支持 SOCKS5，请使用桌面版或配置 HTTP 代理`);
+        continue;
+      }
+      try {
+        const response = await undiciFetch(input, {
+          ...init,
+          ...(route.proxy ? { dispatcher: dispatcherFor(route.proxy) } : {}),
+        });
+        if ([502, 503, 504].includes(response.status)) {
+          errors.push(`${route.label}返回 HTTP ${response.status}`);
+          continue;
+        }
+        return response;
+      } catch (error) {
+        const cause = error?.cause?.message || error?.message || "连接失败";
+        errors.push(`${route.label}：${cause}`);
+      }
     }
+    throw new Error(`网页抓取请求失败；${errors.join("；")}`);
   });
   server.listen(port, "127.0.0.1", () => {
-    console.log(`Learning Tracker running at http://127.0.0.1:${port} (metadata proxy: ${proxyUrl})`);
+    console.log(`Learning Tracker running at http://127.0.0.1:${port}`);
   });
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
