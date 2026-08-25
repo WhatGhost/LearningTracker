@@ -90,11 +90,11 @@ test("parses links without using surrounding text as titles", () => {
 
 test("parses nested Markdown links copied from chat exports", () => {
   const links = parseLinks(`
-    WhatGhost 09:40
+    Reader 09:40
     [机器人视频基座模型: [https://mp.weixin.qq.com/s?__biz=test#rd](https://mp.weixin.qq.com/s?__biz=test#rd)]
-    WhatGhost 15:37
+    Reader 15:37
     [谈谈 Kimi K3 的 KDA(1): [https://mp.weixin.qq.com/s/short](https://mp.weixin.qq.com/s/short)]
-    WhatGhost 15:38
+    Reader 15:38
     [[mp.weixin.qq.com](http://mp.weixin.qq.com): [https://mp.weixin.qq.com/s/no-title](https://mp.weixin.qq.com/s/no-title)]
   `);
 
@@ -227,6 +227,8 @@ test("persists configurable direct and proxy modes for metadata fetching", async
   const initial = await jsonRequest(`${baseUrl}/api/settings/network`);
   assert.equal(initial.response.status, 200);
   assert.equal(typeof initial.body.settings.useProxy, "boolean");
+  assert.equal(initial.body.settings.httpProxy, "");
+  assert.equal(initial.body.settings.socksProxy, "");
   assert.equal(initial.body.capabilities.socks5, false);
 
   const proxied = await jsonRequest(`${baseUrl}/api/settings/network`, {
@@ -355,4 +357,14 @@ test("keeps the documented data path out of tracked source", async () => {
   const gitignore = await readFile(path.join(projectRoot, ".gitignore"), "utf8");
   assert.match(gitignore, /^data\/$/mu);
   assert.match(gitignore, /^\*\.db-wal$/mu);
+  assert.match(gitignore, /^reading-tracker-\*\.json$/mu);
+  assert.match(gitignore, /^\.npmrc$/mu);
+  assert.match(gitignore, /^PRIVATE_RELEASE_CHECKLIST\.md$/mu);
+  const license = await readFile(path.join(projectRoot, "LICENSE"), "utf8");
+  assert.match(license, /^MIT License$/mu);
+  assert.match(license, /Copyright \(c\) 2026 WhatGhost/u);
+  const englishReadme = await readFile(path.join(projectRoot, "README_EN.md"), "utf8");
+  assert.match(englishReadme, /href="README\.md">简体中文<\/a>/u);
+  const chineseReadme = await readFile(path.join(projectRoot, "README.md"), "utf8");
+  assert.match(chineseReadme, /href="README_EN\.md"/u);
 });

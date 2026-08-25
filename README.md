@@ -1,259 +1,210 @@
-# 阅迹 · Learning Tracker
+<div align="center">
+  <img src="public/favicon.svg" width="76" alt="阅迹图标" />
+  <h1>阅迹 · Learning Tracker</h1>
+  <p>一个本地优先的稍后阅读与文章整理工具。</p>
+  <p><strong>简体中文</strong> · <a href="README_EN.md">English</a></p>
 
-一个本地优先的文章阅读清单。支持批量粘贴链接、自动抓取网页标题、跟踪阅读状态，并可使用你自己配置的大模型为未读文章添加分类标签。
+  <p>
+    <img alt="Node.js 22.13+" src="https://img.shields.io/badge/Node.js-%E2%89%A522.13-339933?logo=nodedotjs&logoColor=white" />
+    <img alt="Electron 43" src="https://img.shields.io/badge/Electron-43-47848F?logo=electron&logoColor=white" />
+    <img alt="SQLite" src="https://img.shields.io/badge/Storage-SQLite-003B57?logo=sqlite&logoColor=white" />
+    <img alt="Windows" src="https://img.shields.io/badge/Desktop-Windows-0078D4?logo=windows11&logoColor=white" />
+    <img alt="Local first" src="https://img.shields.io/badge/Data-Local%20First-5B5BD6" />
+    <img alt="MIT License" src="https://img.shields.io/badge/License-MIT-yellow.svg" />
+  </p>
+</div>
 
-## 功能
+## 阅迹是什么
 
-- 每次批量导入最多 50 个链接
-- 自动读取 `og:title` 或网页 `<title>`
-- 导入前预览并修改标题
-- 自动识别“每行一个链接”、“说明文字 + 链接”和聊天软件导出的 Markdown 链接
-- 使用 SQLite 持久化文章和阅读状态
-- 已保存文章可修改标题、链接、阅读状态和标签
-- 标签可新增、修改、停用、重新启用，并支持颜色、分组、说明和别名
-- 大模型从现有标签中为文章选择 1 至 5 个标签，不会自动创建新标签
-- 导入后异步自动分类，也可按文章重试或批量分类已有未读文章
-- 支持 OpenAI 兼容的 Chat Completions 接口和连接测试
-- 网页抓取可选择直连或代理，HTTP、SOCKS5 地址和直连回退策略均可配置
-- 设置页面使用模型 API、网页抓取、标签分类和外观主题四个选项卡
-- 内置 11 套完整配色，包括暖纸书房、海岸晴空、森林苔原、日落陶土、Catppuccin、Solarized、东京夜色、Nord、Dracula 和 Gruvbox 等，主题选择保存在本地
-- 按标题、链接、网站域名或标签搜索
-- 按阅读状态和标签筛选
-- 防止重复链接写入
-- 导出 JSON 备份
-- 响应式桌面端和移动端界面
+我们经常在聊天软件、浏览器和社交平台里遇到值得阅读的文章，但链接很快就会被新的消息淹没。阅迹把这些分散的链接收进一个本地阅读队列：导入链接后自动抓取标题，记录阅读进度，用标签整理主题，并在需要时重新找到它们。
 
-## 运行要求
-
-- Node.js 22.13.0 或更高版本
-
-SQLite 由 Node.js 内置模块提供，不需要安装或启动独立数据库；其他依赖通过 `npm install` 安装。
-
-## 大模型自动分类
-
-点击页面右上角的“设置”，填写：
-
-- API Base URL，例如 `https://api.openai.com/v1` 或本地兼容服务地址
-- 模型名称
-- API Key；不需要 Key 的本地模型可以留空
-- 可选的订阅密钥请求头、订阅密钥、用户请求头及其值
-- 请求超时时间
-- 每篇最多标签数（1 至 5）
-- 是否自动分类新导入的未读文章
-
-“保存并测试连接”会发送一条很小的示例分类请求，同时验证地址、鉴权、模型名称和 JSON 返回格式。仅查询模型列表不能完整验证分类能力，因此测试会实际调用一次模型。
-如果兼容接口不支持完整 JSON Schema（例如返回 `Grammar error` 或 `Unimplemented keys`），应用会自动降级到 JSON Object 模式，并在本地继续校验和去重标签。
-
-### AMD OnPrem 自定义请求头示例
-
-对于下面这种 OpenAI SDK 配置：
-
-```python
-client = openai.OpenAI(
-    base_url="https://llm-api.amd.com/OnPrem",
-    api_key="dummy",
-    default_headers={
-        "Ocp-Apim-Subscription-Key": "actual_key",
-        "user": os.getlogin(),
-    },
-)
-```
-
-在设置页中对应填写：
+它关注的是一条简单、可持续的工作流：
 
 ```text
-API Base URL:       https://llm-api.amd.com/OnPrem
-Bearer API Key:     dummy
-订阅密钥请求头:      Ocp-Apim-Subscription-Key
-订阅密钥:            真实的 actual_key
-用户请求头:          user
-用户请求头值:        Windows 用户名（可点击“使用当前系统用户”）
-模型名称:            服务端提供的实际模型 ID
+收集链接 → 自动补全标题 → 安排阅读 → 标记进度 → 按标签回顾
 ```
 
-应用会向 `https://llm-api.amd.com/OnPrem/chat/completions` 发送请求，并同时携带 `Authorization: Bearer dummy`、订阅密钥和用户请求头。
+应用不依赖云端账号或在线数据库。文章清单、阅读状态、标签和设置都保存在自己的电脑上。
 
-自动分类使用文章标题、域名、URL 和网页描述，不发送整篇正文。模型只能从设置页中处于启用状态的标签中选择；请求失败时不会影响文章导入，列表会显示超时、鉴权、模型不存在、限流或格式解析等具体原因。
+## 主要功能
 
-默认标签位于 [`config/default-labels.json`](config/default-labels.json)，其中包括 LLM、Agent、GPU、vLLM、SGLang、通信、Kernel、PD 分离等标签。该文件只负责首次初始化；设置页中的实际增删修改保存在 SQLite，不会在应用升级时被默认文件覆盖。
+### 快速收集文章
 
-## 桌面应用（推荐）
+- 一次批量导入最多 50 个 HTTP/HTTPS 链接
+- 支持每行一个链接、说明文字加链接，以及聊天软件导出的嵌套 Markdown 链接
+- 标题统一从目标网页抓取，不把聊天昵称、时间或说明文字误当成标题
+- 导入前可以预览和修改；抓取失败时显示超时或提取错误
+- 自动规范化链接并阻止重复文章写入
 
-安装依赖后，运行：
+### 跟踪阅读进度
+
+- 使用“未阅读、阅读中、已完成”管理阅读队列
+- 按标题、链接、网站域名或标签搜索
+- 按阅读状态和标签筛选
+- 随时修改文章标题、链接、状态和标签
+
+### 整理与回顾
+
+- 自定义标签名称、分组、颜色、说明和别名
+- 标签可以完全手动维护和分配，不需要配置大模型
+- 可配置 OpenAI 兼容的 LLM API、模型、鉴权请求头和超时时间
+- 可开启 LLM 自动分类，为新导入或已有的未读文章选择 1 至 5 个已有标签
+- 自动分类失败不会影响文章导入，随时可以重试或改为手动分配标签
+- 导出 JSON 备份，便于迁移和恢复
+
+### 本地桌面体验
+
+- SQLite 持久化，刷新页面、重启应用或升级版本不会丢失数据
+- Electron 桌面版和本地浏览器版使用同一套功能
+- 内置 11 套完整主题，包括 Catppuccin、Solarized、Nord、Dracula 和 Gruvbox 风格
+- 网页抓取网络支持可选代理，适应不同网络环境
+
+## 安装
+
+### 从 Release 安装（推荐）
+
+前往项目的 [Releases 页面](https://github.com/WhatGhost/LearningTracker/releases/latest) 下载 Windows 版本：
+
+- `LearningTracker-win32-x64.zip`：便携版，解压后运行 `LearningTracker.exe`
+- `LearningTracker-Setup.exe`：安装版，按安装向导完成安装
+
+便携版不会把数据写进解压目录，数据库仍保存在 Windows 用户数据目录中，因此替换或移动应用文件不会删除文章。
+
+> 未签名的安装程序可能触发 Windows SmartScreen。可以核对 Release 来源后选择继续，或者使用便携版。
+
+### 从源码运行
+
+环境要求：Node.js 22.13.0 或更高版本。
 
 ```bash
+git clone https://github.com/WhatGhost/LearningTracker.git
+cd LearningTracker
+npm install
 npm start
 ```
 
-这会打开 Electron 桌面窗口，并在后台自动启动本地服务。关闭桌面窗口后，后台服务也会自动停止。
+`npm start` 会启动 Electron 桌面窗口及其本地服务。关闭桌面窗口后，后台服务会一并停止。
 
-桌面版使用 Chromium 网络栈抓取标题。默认使用直连；可以在“设置 → 网页抓取网络”中启用 HTTP 和 SOCKS5 代理、修改地址，并选择代理失败后是否回退直连。修改后立即生效，不需要重启应用。界面不会获得 Node.js 或文件系统权限；文章链接会交给系统默认浏览器打开。
+如需使用浏览器版本：
 
-### 生成 Windows 便携版
+```bash
+npm run web
+```
+
+然后访问 <http://127.0.0.1:8999>。在终端按 `Ctrl+C` 可以停止服务。
+
+### 从源码构建
+
+生成 Windows 便携版：
 
 ```bash
 npm run package:desktop
 ```
 
-生成结果：
-
-```text
-out/LearningTracker-win32-x64/LearningTracker.exe
-out/make/zip/win32/x64/LearningTracker-win32-x64.zip
-```
-
-ZIP 可以直接上传到 GitHub Release，解压后运行 `LearningTracker.exe`。`out/` 已加入 `.gitignore`，构建产物不会进入源码提交。
-
-### 生成 Windows 安装程序
+生成便携版和 Squirrel 安装程序：
 
 ```bash
 npm run make:desktop
 ```
 
-该命令会同时生成便携版和 Squirrel 安装程序：
+构建结果位于 `out/`，该目录不会进入 Git 提交。
 
-```text
-out/make/squirrel.windows/x64/LearningTracker-Setup.exe
-```
+## 基本使用
 
-未签名的安装程序可能触发 Windows SmartScreen；正式公开分发时建议配置代码签名证书。日常自用优先使用便携 ZIP。
-
-## 浏览器版本
-
-如需继续使用原来的本地网页模式，执行：
-
-```bash
-npm run web
-```
-
-浏览器模式同样默认直连，并支持在设置页配置 HTTP 代理。SOCKS5 代理由 Electron 网络栈提供，因此仅桌面版支持。
-
-需要在首次启动时通过环境变量预设代理，也可以使用：
-
-```powershell
-$env:LEARNING_TRACKER_HTTP_PROXY="http://127.0.0.1:17890"
-$env:LEARNING_TRACKER_SOCKS_PROXY="socks5://127.0.0.1:10801"
-npm run web
-```
-
-只设置 HTTP 代理即可；设置任意一个代理环境变量会使首次启动默认进入代理模式。之后在设置页保存的值以本地数据库配置为准。
-
-然后打开：
-
-```text
-http://127.0.0.1:8999
-```
-
-开发网页服务时如需自动重启，可以运行：
-
-```bash
-npm run dev
-```
-
-默认端口是 `8999`。如端口已被占用，可以设置 `PORT` 环境变量，例如 PowerShell：
-
-```powershell
-$env:PORT=3100
-npm run web
-```
-
-## 数据保存位置
-
-源码开发和浏览器版本会自动创建：
-
-```text
-data/reading-tracker.db
-```
-
-这是一个本地 SQLite 文件。刷新页面、关闭浏览器或重启电脑都不会丢失数据。
-
-`data/`、SQLite 主文件以及 WAL 临时文件均已写入 `.gitignore`，执行 `git add .` 时不会上传到 GitHub。
-
-打包后的桌面应用使用 Electron 的用户数据目录，Windows 上通常位于：
-
-```text
-%APPDATA%\learning-tracker\data\reading-tracker.db
-```
-
-因此升级、移动或重新解压桌面应用不会覆盖数据库。该文件位于 Git 仓库之外，也不会被上传到 GitHub。
-
-现有数据库会在启动时自动增加标签和分类字段，原有文章、阅读状态和链接都保持不变，不需要重新导入。
-
-### 备份数据
-
-有两种备份方式：
-
-1. 在页面右上角点击“导出备份”，下载 JSON 文件。
-2. 停止应用后，复制对应运行模式下的 `reading-tracker.db` 文件。
-
-恢复 SQLite 备份时，先停止应用，再将备份文件放回 `data/reading-tracker.db`。
-
-## 批量导入格式
-
-每行可以只有链接：
+点击右上角“批量导入”，粘贴一个或多个链接：
 
 ```text
 https://example.com/article-one
 https://example.com/article-two
 ```
 
-也可以直接粘贴聊天记录导出的 Markdown 格式。应用只读取括号中的真实链接，昵称、时间、日期、说明文字和 Markdown 显示文字都不会作为标题：
+也可以直接粘贴聊天记录：
 
 ```text
-WhatGhost 09:40
-[文章标题: [https://mp.weixin.qq.com/s/example](https://mp.weixin.qq.com/s/example)]
+Reader 09:40
+[文章标题: [https://example.com/article](https://example.com/article)]
 ```
 
-无论使用哪种粘贴格式，标题都统一从目标网页抓取，不会从聊天记录文字中提取。
+阅迹只从这些内容中提取链接，标题会从网页重新抓取。确认预览后，文章会以“未阅读”状态加入清单。
 
-也可以附带说明文字：
+阅读过程中可以直接修改状态；需要补充标题、修正链接或手动分配标签时，使用文章右侧的编辑按钮。
 
-```text
-一篇关于阅读方法的文章 https://example.com/article-one
-稍后研究：https://example.com/article-two
-```
+## 可选功能
 
-应用会在本机抓取网页标题。微信文章会使用更长超时、浏览器请求头以及 `msg_title` 兜底解析。标题提取失败时，导入预览会针对每个链接明确显示“抓取超时”“抓取失败”或“未找到网页标题”及详细原因；可以在导入前手动填写，也可以保存后通过文章右侧的修改按钮调整标题、链接和状态。
+阅迹的链接收集、阅读进度、搜索和手动标签功能不依赖任何额外服务。下面两项只在有相应需求时配置。
 
-## 隐私和安全
+### 大模型自动分类（可选）
 
-- 服务只监听 `127.0.0.1`，局域网和互联网中的其他设备默认无法访问。
-- 文章数据只写入当前项目的本地 SQLite 文件。
-- 标题抓取只允许 HTTP/HTTPS，并会拒绝本机和常见内网地址。
-- Electron 窗口启用上下文隔离和沙箱，不向页面暴露 Node.js API。
-- 桌面版 Bearer API Key 和订阅密钥均通过 Electron `safeStorage` 使用操作系统能力加密后写入本机数据库，不会出现在 JSON 导出或 Git 仓库中。
-- 浏览器运行模式没有 Electron 系统密钥库：设置页填写的密钥只保存在当前服务进程。需要重启后继续使用时，可在启动前设置 `LEARNING_TRACKER_API_KEY` 和 `LEARNING_TRACKER_SUBSCRIPTION_KEY` 环境变量。
-- 应用不会把阅读数据发送到任何云端数据库；启用自动分类时，只会把分类所需的文章字段发送到你配置的模型接口。
+不配置模型时，可以在“设置 → 标签分类”中创建和维护标签，再通过文章编辑窗口手动选择。手动标签是完整功能，不是自动分类的降级模式。
 
-## 项目结构
+配置模型的用途只是减少重复整理工作：阅迹会把文章标题、域名、URL、网页描述和当前启用的标签目录发送给兼容接口，让模型从已有标签中选择 1 至 5 个。模型不会创建新标签，也不会收到文章全文。
+
+在“设置 → 模型 API”中可以配置：
+
+- OpenAI 兼容的 API Base URL
+- 模型名称和请求超时时间
+- 可选的 Bearer API Key
+- 企业网关需要的订阅密钥请求头和用户请求头
+- 是否在导入新文章后自动执行分类
+
+“保存并测试连接”会发送一次小型分类请求。接口不支持完整 JSON Schema 时，应用会自动降级到 JSON Object 模式，并在本地继续校验返回标签。模型请求失败不会影响文章导入或手动标签。
+
+默认标签目录位于 [`config/default-labels.json`](config/default-labels.json)，包括 LLM、Agent、GPU、vLLM、SGLang、通信、Kernel、PD 分离等。首次启动后，实际标签配置保存在本地数据库中。
+
+### 网页抓取代理（可选）
+
+默认使用直连，不需要代理即可正常使用。代理配置只用于抓取文章标题和网页描述，适合目标网站在当前网络环境下访问较慢、超时或需要本地代理的情况。
+
+代理不会应用到大模型 API 请求；模型接口和网页抓取使用两套独立的网络配置。
+
+在“设置 → 网页抓取”中可以配置：
+
+- HTTP/HTTPS 代理，例如 `http://127.0.0.1:<port>`
+- SOCKS5 备用代理，例如 `socks5://127.0.0.1:<port>`
+- 代理失败后是否回退直连
+- 用指定网址测试当前配置
+
+桌面版支持 HTTP 和 SOCKS5；浏览器版支持直连和 HTTP 代理。所有代理地址仅保存在本机。
+
+## 数据与隐私
+
+| 运行方式 | 数据库位置 | 密钥保存方式 |
+| --- | --- | --- |
+| 源码 / 浏览器版 | `data/reading-tracker.db` | 当前服务进程或环境变量 |
+| 打包桌面版 | `%APPDATA%\learning-tracker\data\reading-tracker.db` | Electron `safeStorage` 操作系统加密 |
+
+- 服务只监听 `127.0.0.1`，不会默认暴露给局域网或互联网
+- 标题抓取只接受 HTTP/HTTPS，并拒绝本机和常见内网目标
+- Electron 页面启用上下文隔离和沙箱，不暴露 Node.js 或文件系统 API
+- JSON 备份不包含 Bearer Key 或订阅密钥
+- 阅读数据不会写入云端数据库；仅在启用自动分类时请求用户配置的模型接口
+- `data/`、`.env`、密钥文件、导出备份、`node_modules/` 和 `out/` 均由 [`.gitignore`](.gitignore) 排除
+
+## 开发
+
+| 命令 | 用途 |
+| --- | --- |
+| `npm start` | 启动 Electron 开发版 |
+| `npm run web` | 启动本地浏览器版 |
+| `npm run dev` | 监听代码变化并启动本地服务 |
+| `npm test` | 运行自动化测试 |
+| `npm run package:desktop` | 构建 Windows 便携版 |
+| `npm run make:desktop` | 构建便携版和安装程序 |
+
+测试使用临时数据库和本地模拟模型接口，不会修改真实阅读数据，也不会调用真实大模型 API。
 
 ```text
 LearningTracker/
-├── config/
-│   └── default-labels.json # 默认标签目录
-├── lib/
-│   ├── api-key-store.mjs  # API Key 存储适配
-│   ├── database.mjs       # SQLite 初始化、迁移和数据操作
-│   ├── link-metadata.mjs  # 链接解析与标题/描述抓取
-│   └── llm-labeler.mjs    # 模型请求、校验和后台分类队列
-├── electron/
-│   └── main.mjs           # 桌面窗口和服务生命周期
-├── public/
-│   ├── app.js             # 页面状态和交互
-│   ├── index.html         # 页面结构
-│   └── styles.css         # 响应式样式
-├── server.mjs             # 本地 HTTP 服务与 API
-├── scripts/
-│   └── package-desktop.mjs # Windows 便携包和安装包构建
-├── forge.config.mjs       # Electron Forge 配置
-├── package.json
-└── .gitignore
+├── config/       默认标签目录
+├── electron/     Electron 桌面入口
+├── lib/          数据库、链接抓取与自动分类
+├── public/       页面、样式和交互
+├── scripts/      桌面打包脚本
+├── test/         自动化测试
+├── server.mjs    本地服务与 API
+└── package.json
 ```
 
-## 测试
+## License
 
-```bash
-npm test
-```
-
-测试会使用临时数据库和本地模拟模型接口，不会修改 `data/reading-tracker.db`，也不会调用或消耗真实的大模型 API。
+本项目采用 [MIT License](LICENSE)。你可以自由使用、修改和分发代码，但需要保留原始版权和许可证声明。

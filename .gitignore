@@ -15,6 +15,19 @@ npm-debug.log*
 .env
 .env.*
 !.env.example
+.npmrc
+credentials*.json
+secrets*.json
+*.pem
+*.key
+*.pfx
+*.p12
+
+# Exported personal backups
+reading-tracker-*.json
+
+# Private maintainer notes
+PRIVATE_RELEASE_CHECKLIST.md
 
 # Editor and operating system files
 .DS_Store
