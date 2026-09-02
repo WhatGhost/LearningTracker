@@ -336,6 +336,21 @@ function approximateLinkCount(value) {
   return (value.match(/https?:\/\/[^\s<>"']+/giu) || []).length;
 }
 
+function labelPickerMarkup(selectedLabelIds = [], inputAttributes = "") {
+  const selected = new Set(selectedLabelIds.map(Number));
+  const groups = new Map();
+  for (const label of state.labels) {
+    if (!groups.has(label.group)) groups.set(label.group, []);
+    groups.get(label.group).push(label);
+  }
+  return [...groups.entries()].map(([group, labels]) => `
+    <div class="label-picker-group"><strong>${escapeHtml(group)}</strong><div>${labels.map((label) => `
+      <label class="label-choice" style="--label-color:${escapeHtml(label.color)}">
+        <input type="checkbox" value="${label.id}" ${inputAttributes} ${selected.has(label.id) ? "checked" : ""} />
+        <span>${escapeHtml(label.name)}</span>
+      </label>`).join("")}</div></div>`).join("");
+}
+
 function renderImportPreview() {
   document.querySelector("#preview-count").textContent = state.importItems.length;
   elements.confirmButton.disabled = state.importItems.length === 0;
@@ -343,7 +358,7 @@ function renderImportPreview() {
     <article class="preview-item" data-preview-index="${index}">
       <div class="preview-item-row">
         <span class="preview-index">${index + 1}</span>
-        <input class="preview-title" data-action="preview-title" value="${escapeHtml(item.title)}" aria-label="第 ${index + 1} 篇文章的标题" maxlength="500" />
+        <input class="preview-title${item.fetched ? "" : " manual-required"}" data-action="preview-title" value="${escapeHtml(item.title)}" placeholder="${item.fetched ? "文章标题" : "请手动填写文章标题"}" aria-label="第 ${index + 1} 篇文章的标题" maxlength="500" />
         <button class="remove-preview" type="button" data-action="remove-preview" aria-label="移除第 ${index + 1} 篇文章">
           <svg viewBox="0 0 18 18"><path d="m5 5 8 8M13 5l-8 8"/></svg>
         </button>
@@ -356,6 +371,10 @@ function renderImportPreview() {
         <svg viewBox="0 0 18 18" aria-hidden="true"><path d="M9 2.5 16 15H2L9 2.5Z"/><path d="M9 7v3.5M9 13h.01"/></svg>
         <span>${escapeHtml(item.error || "标题提取失败，请手动填写标题")}</span>
       </div>`}
+      <fieldset class="label-picker-field preview-label-field">
+        <legend>文章标签 <span>可选，最多选择 5 个</span></legend>
+        <div class="label-picker preview-label-picker">${labelPickerMarkup(item.labelIds, 'data-action="preview-label"')}</div>
+      </fieldset>
     </article>`).join("");
 }
 
@@ -365,10 +384,16 @@ async function previewLinks() {
   setButtonLoading(elements.previewButton, true, "正在抓取标题...");
   try {
     const payload = await apiRequest("/api/links/preview", { method: "POST", body: JSON.stringify({ text }) });
-    state.importItems = payload.items;
+    state.importItems = payload.items.map((item) => ({
+      ...item,
+      title: item.fetched ? item.title : "",
+      labelIds: [],
+    }));
     renderImportPreview();
     elements.pasteStep.hidden = true;
     elements.previewStep.hidden = false;
+    const manualTitle = elements.previewList.querySelector(".preview-title.manual-required");
+    if (manualTitle) requestAnimationFrame(() => manualTitle.focus());
     if (payload.truncated) showToast("单次最多处理 50 个链接，已保留前 50 个", "error");
   } catch (error) {
     showToast(error.message, "error");
@@ -379,9 +404,16 @@ async function previewLinks() {
 }
 
 async function confirmImport() {
-  const items = state.importItems.map(({ title, url, description }) => ({ title: title.trim(), url, description }));
+  const items = state.importItems.map(({ title, url, description, labelIds }) => ({
+    title: title.trim(),
+    url,
+    description,
+    labelIds,
+  }));
   if (items.some((item) => !item.title)) {
     showToast("请补全所有文章标题", "error");
+    const missingIndex = items.findIndex((item) => !item.title);
+    elements.previewList.querySelector(`[data-preview-index="${missingIndex}"] .preview-title`)?.focus();
     return;
   }
   setButtonLoading(elements.confirmButton, true, "正在保存...");
@@ -400,18 +432,7 @@ async function confirmImport() {
 }
 
 function renderEditLabels(article) {
-  const selected = new Set(article.labels.map((label) => label.id));
-  const groups = new Map();
-  for (const label of state.labels) {
-    if (!groups.has(label.group)) groups.set(label.group, []);
-    groups.get(label.group).push(label);
-  }
-  elements.editLabels.innerHTML = [...groups.entries()].map(([group, labels]) => `
-    <div class="label-picker-group"><strong>${escapeHtml(group)}</strong><div>${labels.map((label) => `
-      <label class="label-choice" style="--label-color:${escapeHtml(label.color)}">
-        <input type="checkbox" value="${label.id}" ${selected.has(label.id) ? "checked" : ""} />
-        <span>${escapeHtml(label.name)}</span>
-      </label>`).join("")}</div></div>`).join("");
+  elements.editLabels.innerHTML = labelPickerMarkup(article.labels.map((label) => label.id));
 }
 
 function openEditDialog(article) {
@@ -756,7 +777,23 @@ elements.previewList.addEventListener("input", (event) => {
   const input = event.target.closest('[data-action="preview-title"]');
   if (!input) return;
   const item = input.closest("[data-preview-index]");
-  state.importItems[Number(item.dataset.previewIndex)].title = input.value;
+  const importItem = state.importItems[Number(item.dataset.previewIndex)];
+  importItem.title = input.value;
+  input.classList.toggle("manual-required", !importItem.fetched && !input.value.trim());
+});
+
+elements.previewList.addEventListener("change", (event) => {
+  const input = event.target.closest('[data-action="preview-label"]');
+  if (!input) return;
+  const item = input.closest("[data-preview-index]");
+  const selected = [...item.querySelectorAll('[data-action="preview-label"]:checked')];
+  if (selected.length > 5) {
+    input.checked = false;
+    showToast("每篇文章最多选择 5 个标签", "error");
+  }
+  state.importItems[Number(item.dataset.previewIndex)].labelIds = [
+    ...item.querySelectorAll('[data-action="preview-label"]:checked'),
+  ].map((checkbox) => Number(checkbox.value));
 });
 
 elements.previewList.addEventListener("click", (event) => {

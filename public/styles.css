@@ -416,6 +416,9 @@ td { height: 90px; padding: 14px 22px; border-top: 1px solid var(--line); vertic
 .fetch-success { flex: 0 0 auto; color: #32805f; }
 .preview-error { display: flex; align-items: flex-start; gap: 7px; margin: 9px 0 1px 32px; padding: 8px 10px; color: #925922; border: 1px solid #f1d8ba; border-radius: 8px; background: #fff7ed; font-size: 10px; line-height: 1.55; }
 .preview-error svg { width: 14px; height: 14px; flex: 0 0 auto; margin-top: 1px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+.preview-title.manual-required { border-color: color-mix(in srgb, var(--amber) 58%, var(--control-border)); background: color-mix(in srgb, var(--amber) 7%, var(--card)); }
+.preview-label-field { margin: 12px 0 0 32px; }
+.preview-label-picker { max-height: 150px; padding: 10px; }
 .split-actions { justify-content: space-between; }
 .edit-dialog { width: min(540px, calc(100vw - 30px)); }
 .edit-form { padding: 24px 28px 27px; }
@@ -573,6 +576,21 @@ html[data-color-scheme="dark"] .label-picker,
 html[data-color-scheme="dark"] .label-choice span { color: var(--ink); border-color: var(--control-border); background: var(--surface-subtle); }
 html[data-color-scheme="dark"] .preview-title:hover,
 html[data-color-scheme="dark"] .preview-title:focus { background: var(--surface-muted); }
+html[data-color-scheme="dark"] .preview-title.manual-required {
+  border-color: color-mix(in srgb, var(--amber) 62%, var(--control-border));
+  background: color-mix(in srgb, var(--amber) 13%, var(--surface-subtle));
+}
+html[data-color-scheme="dark"] .preview-error {
+  color: color-mix(in srgb, var(--amber) 62%, var(--ink));
+  border-color: color-mix(in srgb, var(--amber) 38%, var(--line));
+  background: color-mix(in srgb, var(--amber) 12%, var(--surface-subtle));
+}
+html[data-color-scheme="dark"] .label-choice input:checked + span {
+  color: color-mix(in srgb, var(--label-color) 32%, var(--ink));
+  border-color: color-mix(in srgb, var(--label-color) 55%, var(--ink));
+  background: color-mix(in srgb, var(--label-color) 30%, var(--surface-muted));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--label-color) 45%, transparent), 0 0 0 2px color-mix(in srgb, var(--label-color) 18%, transparent);
+}
 html[data-color-scheme="dark"] .preview-index,
 html[data-color-scheme="dark"] .preview-heading > span,
 html[data-color-scheme="dark"] .form-hint { color: var(--muted); background: var(--surface-muted); }

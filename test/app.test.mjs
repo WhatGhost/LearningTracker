@@ -6,7 +6,12 @@ import os from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { extractTitleFromHtml, normalizeUrl, parseLinks } from "../lib/link-metadata.mjs";
+import {
+  extractTitleFromHtml,
+  metadataHttpErrorMessage,
+  normalizeUrl,
+  parseLinks,
+} from "../lib/link-metadata.mjs";
 
 const projectRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 let tempDir;
@@ -117,6 +122,12 @@ test("extracts WeChat titles without accepting verification pages", () => {
   );
 });
 
+test("explains Zhihu access verification failures", () => {
+  assert.match(metadataHttpErrorMessage(403, "zhuanlan.zhihu.com"), /知乎返回了访问验证/u);
+  assert.match(metadataHttpErrorMessage(403, "www.zhihu.com"), /手动填写标题并选择标签/u);
+  assert.equal(metadataHttpErrorMessage(404, "example.com"), "网页返回 404");
+});
+
 test("serves the reading list page", async () => {
   const response = await fetch(baseUrl);
   assert.equal(response.status, 200);
@@ -127,6 +138,9 @@ test("serves the reading list page", async () => {
   assert.match(html, /name="app-theme" value="midnight"/u);
   assert.match(html, /name="app-theme" value="dracula"/u);
   assert.match(html, /name="app-theme" value="gruvbox"/u);
+  assert.match(html, /标题与标签可在保存前修改/u);
+  const styles = await (await fetch(`${baseUrl}/styles.css`)).text();
+  assert.match(styles, /html\[data-color-scheme="dark"\] \.label-choice input:checked \+ span/u);
 });
 
 test("persists the full article lifecycle", async () => {
@@ -196,9 +210,17 @@ test("manages labels and attaches up to five labels to an article", async () => 
 
   const imported = await jsonRequest(`${baseUrl}/api/articles/import`, {
     method: "POST",
-    body: JSON.stringify({ items: [{ title: "Attention Article", url: "https://example.com/attention" }] }),
+    body: JSON.stringify({
+      items: [{
+        title: "Attention Article",
+        url: "https://example.com/attention",
+        labelIds: [createdLabel.body.label.id],
+      }],
+    }),
   });
   const articleId = imported.body.inserted[0].id;
+  assert.deepEqual(imported.body.inserted[0].labels.map((label) => label.id), [createdLabel.body.label.id]);
+  assert.equal(imported.body.inserted[0].labelStatus, "classified");
   const labelIds = initial.body.labels.filter((label) => label.enabled).slice(0, 4).map((label) => label.id);
   labelIds.push(createdLabel.body.label.id);
 

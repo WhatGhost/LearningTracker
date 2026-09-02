@@ -244,6 +244,7 @@ async function handleApi(request, response, url) {
           url: urlValue,
           domain: new URL(urlValue).hostname.replace(/^www\./u, ""),
           description: String(item.description || "").trim().slice(0, 2_000),
+          labelIds: Object.hasOwn(item, "labelIds") ? item.labelIds : [],
         });
       } catch (error) {
         sendJson(response, 400, { error: error instanceof Error ? error.message : "文章数据无效" });
@@ -253,7 +254,9 @@ async function handleApi(request, response, url) {
 
     const result = importArticles(items);
     result.duplicates += repeatedInBatch;
-    result.classificationQueued = queueImportedArticles(result.inserted.map((article) => article.id));
+    result.classificationQueued = queueImportedArticles(
+      result.inserted.filter((article) => article.labels.length === 0).map((article) => article.id),
+    );
     sendJson(response, 201, result);
     return true;
   }
